@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>¡Atrapame!</title>
+    <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400..700&display=swap" rel="stylesheet">
+    <style>
+        body { 
+            background-image: url('wallpaper.gif'); 
+            background-size: cover; background-position: center;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; 
+            height: 100vh; margin: 0; font-family: 'Pixelify Sans', sans-serif; overflow: hidden;
+            background-color: #222; touch-action: manipulation;
+        }
+
+       #game-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-start;
+        width: 100%;
+        height: 100vh;
+        overflow: hidden; /* Evita que rebote la pantalla */ 
+    }
+
+        #pantalla-inicio, #pantalla-victoria {
+            position: absolute; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(10px);
+            display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 200;
+        }
+
+        h1 { font-size: 45px; color: white; text-shadow: 0 0 20px #ff69b4; margin: 10px; }
+
+       canvas { 
+        display: none; 
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 10px;
+        image-rendering: pixelated;
+        transform: scale(1.4); 
+        margin-top: 150px;
+    }
+        .modal { 
+            position: absolute; background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(20px);
+            padding: 15px; border: 2px solid #ff69b4; display: none; 
+            text-align: center; border-radius: 20px; color: #222; z-index: 100; width: 180px;
+        }
+
+        button { 
+            background: #ff69b4; border: none; padding: 12px 20px; color: white; 
+            cursor: pointer; border-radius: 10px; font-family: 'Pixelify Sans', sans-serif;
+            font-size: 18px; margin: 5px;
+        }
+        
+        #puntos {
+            position: absolute; 
+            top: 50px;
+            color: white; 
+            font-size: 24px; 
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="pantalla-inicio">
+        <h1>¡Atrapame!</h1>
+        <button onclick="empezarJuego()">EMPEZAR JUEGO</button>
+    </div>
+
+    <div id="pantalla-victoria" style="display:none">
+        <h1>¡Me atrapaste!</h1>
+        <p style="color:white">Esta vez te voy a dejar ganar</p>
+        <button onclick="location.reload()">Jugar de nuevo</button>
+    </div>
+
+    <div id="game-container">
+        <div id="puntos" style="display:none">Veces atrapada: <span id="num-atrapada">0</span> / 3</div>
+
+        <div id="mensaje-gato" class="modal">
+            <img id="gatito-img" src="gato-1.png" style="width:60px; image-rendering:pixelated;">
+            <p id="texto-gato" style="font-size:14px">¡Un gatito apareció!</p>
+            <button onclick="acariciarGato()">Acariciar</button>
+            <button style="background:#666" onclick="noAcariciar()">Pasar</button>
+        </div>
+        
+        <div id="aviso-momo" style="display:none; position:fixed; top:20%; background:rgba(255,105,180,0.9); color:white; padding:15px; border-radius:15px; z-index:300; font-size:20px;">
+            ✨ ¡Momo se movió de lugar!
+        </div>
+
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        const divGato = document.getElementById("mensaje-gato");
+        const imgGato = document.getElementById("gatito-img");
+
+        const TILE_SIZE = 32;
+        let vecesAtrapada = 0;
+        let juegoActivo = false;
+        let dir = "frente"; 
+        let frame = 0;
+
+        // Imágenes
+        const imgNovia = new Image(); imgNovia.src = "novia.png";
+        const imgPasto = new Image(); imgPasto.src = "grass.png";
+        const imgArbol = new Image(); imgArbol.src = "arbol.png";
+        const sfxMiau = new Audio("Meow.mp3");
+
+        const nImgs = {
+            frente: ["novio-frente.png", "novio-frente-1.png", "novio-frente-2.png"],
+            atras: ["novio-atras.png", "novio-atras-1.png", "novio-atras-2.png"],
+            izq: ["novio-izq.png", "novio-izq-1.png", "novio-izq-2.png"],
+            der: ["novio-der.png", "novio-der-1.png", "novio-der-2.png"]
+        };
+
+        const sprites = {};
+        Object.keys(nImgs).forEach(d => {
+            sprites[d] = nImgs[d].map(src => { let i = new Image(); i.src = src; return i; });
+        });
+
+        const mapa = [
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
+            [1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 0, 1],
+            [1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1],
+            [1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1],
+            [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [1, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1],
+            [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
+            [1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1],
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+        ];
+
+        canvas.width = mapa[0].length * TILE_SIZE;
+        canvas.height = mapa.length * TILE_SIZE;
+
+        let novio = { x: 1, y: 1 };
+        let novia = { x: 19, y: 9 };
+
+        function empezarJuego() {
+            document.getElementById("pantalla-inicio").style.display = "none";
+            canvas.style.display = "block";
+            document.getElementById("puntos").style.display = "block";
+            document.getElementById("controles-movil").style.display = "grid";
+            juegoActivo = true;
+            dibujar();
+        }
+
+        function dibujar() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            for (let y = 0; y < mapa.length; y++) {
+                for (let x = 0; x < mapa[y].length; x++) {
+                    ctx.drawImage(mapa[y][x] === 1 ? imgArbol : imgPasto, x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                }
+            }
+            ctx.drawImage(imgNovia, novia.x * TILE_SIZE, novia.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+            ctx.drawImage(sprites[dir][frame], novio.x * TILE_SIZE, novio.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        }
+
+        function mover(dKey) {
+            if (!juegoActivo || divGato.style.display === "block") return;
+            let nx = novio.x, ny = novio.y;
+            if (dKey === "ar") { ny--; dir = "atras"; }
+            if (dKey === "ab") { ny++; dir = "frente"; }
+            if (dKey === "iz") { nx--; dir = "izq"; }
+            if (dKey === "de") { nx++; dir = "der"; }
+
+            if (mapa[ny] && mapa[ny][nx] === 0) {
+                novio.x = nx; novio.y = ny;
+                frame = (frame === 1) ? 2 : 1;
+                if (Math.random() < 0.1) spawnGato();
+            } else { frame = 0; }
+
+            if (novio.x === novia.x && novio.y === novia.y) atrapada();
+            dibujar();
+        }
+
+        window.addEventListener("keydown", (e) => {
+            if (e.key === "ArrowUp") mover("ar");
+            if (e.key === "ArrowDown") mover("ab");
+            if (e.key === "ArrowLeft") mover("iz");
+            if (e.key === "ArrowRight") mover("de");
+        });
+
+        function spawnGato() {
+            let n = Math.floor(Math.random() * 3) + 1;
+            imgGato.src = `gato-${n}.png`;
+            imgGato.dataset.id = n;
+            divGato.style.display = "block";
+        }
+
+        function acariciarGato() {
+    let id = imgGato.dataset.id;
+    imgGato.src = `gato-${id}-feliz.png`;
+    sfxMiau.play().catch(()=>{});
+    
+    // Teletransportamos a Momo
+    teletransporte();
+    
+    // Mostramos el aviso de movimiento
+    const aviso = document.getElementById("aviso-momo");
+    setTimeout(() => { 
+        divGato.style.display = "none"; 
+        aviso.style.display = "block"; // Aparece el cartel de Momo
+        dibujar(); 
+        
+        // El cartel desaparece solo tras 1.5 segundos
+        setTimeout(() => { aviso.style.display = "none"; }, 1500);
+    }, 1200);
+}
+
+        function noAcariciar() {
+            let id = imgGato.dataset.id;
+            imgGato.src = `gato-${id}-triste.png`;
+            setTimeout(() => { divGato.style.display = "none"; }, 1200);
+        }
+
+        function teletransporte() {
+            let pos = [];
+            for(let y=0; y<mapa.length; y++)
+                for(let x=0; x<mapa[y].length; x++)
+                    if(mapa[y][x] === 0 && Math.abs(x-novio.x) > 4) pos.push({x,y});
+            let p = pos[Math.floor(Math.random()*pos.length)];
+            novia.x = p.x; novia.y = p.y;
+        }
+
+        function atrapada() {
+            vecesAtrapada++;
+            document.getElementById("num-atrapada").innerText = vecesAtrapada;
+            if (vecesAtrapada >= 3) {
+                juegoActivo = false;
+                document.getElementById("pantalla-victoria").style.display = "flex";
+            } else {
+                teletransporte();
+            }
+        }
+
+        window.onload = dibujar;
+    </script>
+</body>
+</html>
